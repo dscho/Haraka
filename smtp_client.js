@@ -55,6 +55,17 @@ function SMTPClient(port, host, connect_timeout, idle_timeout) {
             return;
         }
 
+        if (client.command === 'auth') {
+            if (code.match(/^3/) && cont === utils.base64('Username:')) {
+                client.emit('auth_username');
+                return;
+            }
+            else if (code.match(/^3/) && cont === utils.base64('Password:')) {
+                client.emit('auth_password');
+                return;
+            }
+        }
+
         if (client.command === 'ehlo') {
             if (code.match(/^5/)) {
                 // Handle fallback to HELO if EHLO is rejected

@@ -9,7 +9,15 @@ var smtp_client_mod = require('./smtp_client');
 exports.register = function () {
     var plugin = this;
     var load_config = function () {
-        plugin.cfg = plugin.config.get('smtp_forward.ini', {
+        var config;
+        if (connection.notes.auth_proxy) {
+            config = { main: connection.notes.auth_proxy };
+            connection.loginfo(this, 'Reusing data from auth_proxy.');
+        }
+        else {
+            config = this.config.get('smtp_forward.ini');
+        }
+        plugin.cfg = plugin.config.get(config, {
             booleans: [
                   '-main.enable_tls',
                 ],
@@ -50,6 +58,35 @@ exports.hook_queue = function (next, connection) {
 
     var smc_cb = function (err, smtp_client) {
         smtp_client.next = next;
+
+        if (config.main.user) {
+            connection.loginfo(plugin, 'Configuring logging in for SMTP server ' + config.main.host + ':' + config.main.port);
+            smtp_client.on('greeting', function () {
+
+                var base64 = function (str) {
+                    var buffer = new Buffer(str, 'UTF-8');
+                    return buffer.toString('base64');
+                }
+
+                if (config.main.auth_method == 'PLAIN') {
+                    connection.loginfo(plugin, 'Logging in with AUTH PLAIN ' + config.main.user);
+                    smtp_client.send_command('AUTH','PLAIN ' + base64('\0' + config.main.user + '\0' + config.main.passwd));
+                }
+                else if (config.main.auth_method == 'LOGIN') {
+                    smtp_client.send_command('AUTH','LOGIN');
+                    smtp_client.on('auth', function () {
+                        connection.loginfo(plugin, 'Logging in with AUTH LOGIN ' + config.main.user);
+                    });
+                    smtp_client.on('auth_username', function () {
+                        smtp_client.send_command(base64(config.main.user) + '\r\n');
+                    });
+                    smtp_client.on('auth_password', function () {
+                        smtp_client.send_command(base64(config.main.passwd) + '\r\n');
+                    });
+                }
+            });
+        }
+
         var rcpt = 0;
 
         var send_rcpt = function () {
